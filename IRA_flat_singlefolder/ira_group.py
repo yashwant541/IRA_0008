@@ -127,6 +127,21 @@ def _is_country(name) -> bool:
     return str(name).strip().lower() not in _EXCLUDE_ROWS
 
 
+def _num(v):
+    """Coerce a possibly-text amount ('28,755', '$4,740') to a float, else None."""
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return v
+    st = str(v).strip().replace(",", "").replace("$", "").replace("%", "")
+    if st in ("", "-", "n/a", "N/A", "na", "NA"):
+        return None
+    try:
+        return float(st)
+    except Exception:
+        return None
+
+
 def _round_half_up(x: float) -> int:
     return int(math.floor(float(x) + 0.5))
 
@@ -266,8 +281,8 @@ def _ratio_value(tables, product, int_key) -> Optional[float]:
 
     if int_key == "shortfall":
         wm = tables.get("wm_shortfall") or {}
-        sec = (wm.get("securities") or {}).get("__total__")
-        re_ = (wm.get("real_estate") or {}).get("__total__")
+        sec = _num((wm.get("securities") or {}).get("__total__"))
+        re_ = _num((wm.get("real_estate") or {}).get("__total__"))
         if sec is None and re_ is None:
             return None
         total = (sec or 0) + (re_ or 0)

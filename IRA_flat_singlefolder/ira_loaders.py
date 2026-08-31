@@ -186,6 +186,21 @@ def parse_wm_shortfall(rows: List[List[Any]]) -> Dict[str, Dict[str, float]]:
     def cell(r, c):
         return rows[r][c] if 0 <= r < len(rows) and 0 <= c < len(rows[r]) else None
 
+    def num_cell(v):
+        """Coerce a shortfall amount to a number: handles ints/floats, and text
+        cells like '28,755', '$4,740', ' 1600 '.  Returns None when not numeric."""
+        if v is None:
+            return None
+        if isinstance(v, (int, float)):
+            return v
+        s = str(v).strip().replace(",", "").replace("$", "").replace("%", "")
+        if s == "" or s in ("-", "n/a", "N/A", "na", "NA"):
+            return None
+        try:
+            return float(s)
+        except Exception:
+            return None
+
     def norm(v):
         return "".join(ch for ch in str(v).lower() if ch.isalnum())
 
@@ -236,9 +251,9 @@ def parse_wm_shortfall(rows: List[List[Any]]) -> Dict[str, Dict[str, float]]:
                 break
         if total_row is not None:
             if total_amt_col is not None:
-                out["__total__"] = cell(total_row, total_amt_col)
+                out["__total__"] = num_cell(cell(total_row, total_amt_col))
             for country, c in amt_cols.items():
-                val = cell(total_row, c)
+                val = num_cell(cell(total_row, c))
                 if val is not None:
                     out[country] = val
         return out

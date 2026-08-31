@@ -309,3 +309,101 @@ def build_mapping() -> pd.DataFrame:
                 "Final-score group": f"G{gi}: {agg}" if gi else "",
             })
     return pd.DataFrame(rows)
+
+
+# --------------------------------------------------------------------------- #
+#  Risk Rating Formula documentation (download only - never shown in the app)
+# --------------------------------------------------------------------------- #
+import re as _re
+
+_GRADING = ('=IF(OR(B="11A",B="11B",B="11C",B="12A",B="12B",B="12C",B="13"),"Very High",'
+            'IF(OR(B="8B",B="9A",B="9B",B="10A"),"High",'
+            'IF(OR(B="5B",B="6A",B="6B",B="7A",B="7B",B="8A"),"Medium",'
+            'IF(OR(B="1A",B="1B",B="2A"),"Very Low","Low"))))')
+_OUTLOOK = '=IF(B="Positive","Very Low",IF(B="Stable","Low","Very High"))'
+_DISP = '=IF(B>3,"Very High",IF(B=3,"High",IF(B=2,"Medium",IF(B=1,"Low","Very Low"))))'
+_BREACH = '=IF(B>1,"Very High",IF(B=1,"High","Very Low"))'
+_CALC = ('=IF(Score>=4.5,"Very High",IF(Score>=3.5,"High",'
+         'IF(Score>=2.5,"Medium",IF(Score>=1.5,"Low","Very Low"))))')
+_BII = "No separate formula: the Prior-Month value is evaluated inside the 1bi formula."
+
+# per (product, canonical label id) -> the exact Risk Rating formula
+_RATING_FORMULAS = {
+    "Secured": {
+        "1a": '=IF(B>10%,"Very High",IF(B>5%,"High",IF(B>3%,"Medium",IF(B>1%,"Low","Very Low"))))',
+        "1bi": '=IF(AND(cur>0.05%,prior>0.05%),"Very High",IF(AND(cur>0.03%,prior>0.03%),"High",IF(AND(cur>0.02%,prior>0.02%),"Medium",IF(AND(cur>0.01%,prior>0.01%),"Low","Very Low"))))',
+        "1bii": _BII,
+        "1c": '=IF(B>0.1%,"Very High",IF(B>0.05%,"High",IF(B>0.03%,"Medium",IF(B>0.01%,"Low","Very Low"))))',
+        "1d": '=IF(B>25%,"Very High",IF(B>15%,"High",IF(B>5%,"Medium",IF(B>2.5%,"Low","Very Low"))))',
+        "1e": '=IF(B="","Not Available",IF(B>15%,"Very High",IF(B>10%,"High",IF(B>7.5%,"Medium",IF(B>5%,"Low","Very Low")))))',
+        "1f": _DISP,
+        "1g": '=IF(B>10%,"Very High",IF(B>5%,"High",IF(B>2.5%,"Medium",IF(B>1%,"Low","Very Low"))))',
+        "1h": _BREACH,
+        "2a": '=IF(B>3%,"Very High",IF(B>2%,"High",IF(B>1%,"Medium",IF(B>0%,"Low","Very Low"))))',
+        "2b": '=IF(B>5%,"Very Low",IF(B>0,"Low",IF(B>-5%,"Medium",IF(B>-15%,"High","Very High"))))',
+        "2c": _OUTLOOK, "2d": _GRADING,
+    },
+    "Unsecured": {
+        "1a": '=IF(B>15%,"Very High",IF(B>5%,"High",IF(B>3%,"Medium",IF(B>1%,"Low","Very Low"))))',
+        "1bi": '=IF(AND(cur>0.25%,prior>0.25%),"Very High",IF(AND(cur>0.06%,prior>0.06%),"High",IF(AND(cur>0.04%,prior>0.04%),"Medium",IF(AND(cur>0.01%,prior>0.01%),"Low","Very Low"))))',
+        "1bii": _BII,
+        "1c": '=IF(B>0.25%,"Very High",IF(B>0.2%,"High",IF(B>0.15%,"Medium",IF(B>0.1%,"Low","Very Low"))))',
+        "1d": '=IF(B>10%,"Very High",IF(B>7.5%,"High",IF(B>5%,"Medium",IF(B>2.5%,"Low","Very Low"))))',
+        "1e": '=IF(B="","Not Available",IF(B>5%,"Very High",IF(B>1%,"High",IF(B>0.5%,"Medium",IF(B>0.25%,"Low","Very Low")))))',
+        "1f": _DISP,
+        "1g": '=IF(B>12.5%,"Very High",IF(B>10%,"High",IF(B>7.5%,"Medium",IF(B>5%,"Low","Very Low"))))',
+        "1h": _BREACH, "2a": _OUTLOOK, "2b": _GRADING,
+    },
+    "SME Banking": {
+        "1a": '=IF(B>15%,"Very High",IF(B>5%,"High",IF(B>3%,"Medium",IF(B>1%,"Low","Very Low"))))',
+        "1bi": '=IF(AND(cur>0.25%,prior>0.25%),"Very High",IF(AND(cur>0.06%,prior>0.06%),"High",IF(AND(cur>0.04%,prior>0.04%),"Medium",IF(AND(cur>0.01%,prior>0.01%),"Low","Very Low"))))',
+        "1bii": _BII,
+        "1c": '=IF(B>0.25%,"Very High",IF(B>0.2%,"High",IF(B>0.15%,"Medium",IF(B>0.1%,"Low","Very Low"))))',
+        "1d": '=IF(B>20%,"Very High",IF(B>15%,"High",IF(B>10%,"Medium",IF(B>5%,"Low","Very Low"))))',
+        "1e": '=IF(B>10%,"Very High",IF(B>7.5%,"High",IF(B>5%,"Medium",IF(B>2.5%,"Low","Very Low"))))',
+        "1f": '=IF(B>12.5%,"Very High",IF(B>10%,"High",IF(B>7.5%,"Medium",IF(B>5%,"Low","Very Low"))))',
+        "1g": '=IF(B="","Not Available",IF(B>7.5%,"Very High",IF(B>5%,"High",IF(B>3%,"Medium",IF(B>1%,"Low","Very Low")))))',
+        "1h": _DISP, "1i": _BREACH, "2a": _OUTLOOK, "2b": _GRADING,
+    },
+    "Wealth Lending": {
+        "1a": '=IF(B>15%,"Very High",IF(B>5%,"High",IF(B>3%,"Medium",IF(B>1%,"Low","Very Low"))))',
+        "1bi": '=IF(AND(cur>0.25%,prior>0.25%),"Very High",IF(AND(cur>0%,prior>0%),"High","Very Low"))',
+        "1bii": _BII,
+        "1c": '=IF(B>0.25%,"Very High",IF(B>0%,"High","Very Low"))',
+        "1d": '=IF(B>1%,"Very High",IF(B>0.75%,"High",IF(B>0.5%,"Medium",IF(B>0.25%,"Low","Very Low"))))',
+        "1e": '=IF(B>3.5%,"Very High",IF(B>2.5%,"High",IF(B>1.5%,"Medium",IF(B>0.5%,"Low","Very Low"))))',
+        "1f": '=IF(B>25%,"Very High",IF(B>10%,"High",IF(B>5%,"Medium",IF(B>3%,"Low","Very Low"))))',
+        "1g": '=IF(B>3.5%,"Very High",IF(B>2.5%,"High",IF(B>1.5%,"Medium",IF(B>0.5%,"Low","Very Low"))))',
+        "1h": _DISP, "1i": _BREACH, "2a": _OUTLOOK, "2b": _GRADING,
+    },
+}
+# Retail & PvB share the Wealth Lending ladders
+_RATING_FORMULAS["Wealth Lending - Retail Banking"] = _RATING_FORMULAS["Wealth Lending"]
+_RATING_FORMULAS["Wealth Lending - PvB"] = _RATING_FORMULAS["Wealth Lending"]
+
+_FORMULA_COL = "Risk Rating Formula"
+
+
+def _canon_label(label) -> str:
+    m = _re.match(r"^\s*([0-9]+[a-z]*)", str(label))
+    return m.group(1) if m else ""
+
+
+def rating_formula_for(product: str, label) -> str:
+    """The Risk Rating formula documented for one (product, label)."""
+    if str(label).strip().lower().startswith("calculated"):
+        return _CALC
+    table = _RATING_FORMULAS.get(product, {})
+    return table.get(_canon_label(label), "")
+
+
+def attach_rating_formula(df: "pd.DataFrame", product: str) -> "pd.DataFrame":
+    """Return a copy of an output frame with a 'Risk Rating Formula' column
+    appended (documentation of the ladder used for each label). Download only -
+    this is never added to the frames the app renders."""
+    if df is None or df.empty or _FORMULA_COL in df.columns:
+        return df
+    out = df.copy()
+    lab_col = "Label" if "Label" in out.columns else out.columns[min(1, len(out.columns) - 1)]
+    out[_FORMULA_COL] = out[lab_col].map(lambda lb: rating_formula_for(product, lb))
+    return out

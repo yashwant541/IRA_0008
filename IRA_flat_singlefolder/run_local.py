@@ -90,7 +90,13 @@ def _write_sheets(path, frames: dict, first=None):
         for title, df in order:
             name = E.sanitize_sheet_name(title, used)
             safe.append(name)
-            (df if not df.empty else pd.DataFrame({"(empty)": []})).to_excel(
+            out = df
+            if isinstance(title, str) and title.startswith("IRA - ") and not df.empty:
+                try:
+                    out = B.attach_rating_formula(df, title.replace("IRA - ", "", 1))
+                except Exception:
+                    out = df
+            (out if not out.empty else pd.DataFrame({"(empty)": []})).to_excel(
                 xw, sheet_name=name, index=False)
     _format(path, safe)
 

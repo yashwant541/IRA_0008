@@ -149,6 +149,11 @@ def load_tables(sheets: Dict[str, List[List[Any]]],
 
     # --- WM_Shortfall (Wealth Lending Private Banking shortfall tables) ----- #
     raw = get("WM_Shortfall", "WM Shortfall", "WMShortfall")
+    if raw is None:                       # fuzzy: any sheet whose name mentions shortfall
+        for k in sheets:
+            if "shortfall" in _norm(k):
+                raw = sheets[k]
+                break
     if raw is not None:
         tables["wm_shortfall"] = parse_wm_shortfall(raw)
 
@@ -175,51 +180,72 @@ def parse_wm_shortfall(rows: List[List[Any]]) -> Dict[str, Dict[str, float]]:
     and real estate) into
         {'securities': {country: amount, '__total__': X},
          'real_estate': {country: amount, '__total__': Y}}.
-    Each table has, under its title, a country-header row and a 'Clients'/'Amount'
-    sub-row; the per-country figure is the 'Amount' column of the 'Total' row, and
+    Detection is tolerant of title wording, row gaps and column layout: each
+    table's per-country figure is the 'Amount' column of its 'Total' row, and
     '__total__' is the 'Total Amount' column of that same row."""
     def cell(r, c):
         return rows[r][c] if 0 <= r < len(rows) and 0 <= c < len(rows[r]) else None
 
-    def find_title(substr):
+    def norm(v):
+        return "".join(ch for ch in str(v).lower() if ch.isalnum())
+
+    def find_title(*needles):
+        """First row containing a cell whose normalised text holds all needles."""
+        wants = [norm(n) for n in needles]
         for r in range(len(rows)):
-            for c in range(min(5, len(rows[r]))):
+            for c in range(min(8, len(rows[r]))):
                 v = cell(r, c)
-                if isinstance(v, str) and substr.lower() in v.lower():
-                    return r
+                if isinstance(v, str):
+                    nv = norm(v)
+                    if all(w in nv for w in wants):
+                        return r
         return None
 
     def parse_table(title_row):
         out = {}
         if title_row is None:
             return out
-        chdr, sub = title_row + 2, title_row + 3      # country header, Clients/Amount
+        # locate the header row (has a 'Total Amount' cell) within a few rows below
+        chdr = None
+        for r in range(title_row + 1, min(title_row + 7, len(rows))):
+            if any(isinstance(cell(r, c), str) and "total amount" in str(cell(r, c)).lower()
+                   for c in range(len(rows[r]))):
+                chdr = r
+                break
+        if chdr is None:
+            chdr = title_row + 2
+        sub = chdr + 1                                   # Clients / Amount sub-header
         amt_cols, total_amt_col = {}, None
-        width = max(len(rows[r]) for r in (chdr, sub) if r < len(rows))
-        for c in range(2, width):
+        width = max((len(rows[r]) for r in (chdr, sub) if r < len(rows)), default=0)
+        for c in range(width):
             head, s = cell(chdr, c), cell(sub, c)
             if isinstance(head, str) and "total amount" in head.lower():
                 total_amt_col = c
-            if isinstance(s, str) and s.strip().lower() == "amount" and isinstance(head, str):
-                amt_cols[head.strip()] = c
+            if isinstance(s, str) and s.strip().lower() == "amount":
+                # country name usually sits on the Amount column header; if blank,
+                # fall back to the paired 'Clients' column to its left.
+                name = head if (isinstance(head, str) and head.strip()) else cell(chdr, c - 1)
+                if isinstance(name, str) and name.strip() and "total amount" not in name.lower():
+                    amt_cols[name.strip()] = c
+        # the 'Total' row: first row below the sub-header whose leading cells say Total
         total_row = None
-        for r in range(sub + 1, min(sub + 15, len(rows))):
-            for c in (1, 2):
-                v = cell(r, c)
-                if isinstance(v, str) and v.strip().lower() == "total":
-                    total_row = r
-                    break
-            if total_row is not None:
+        for r in range(sub + 1, min(sub + 25, len(rows))):
+            if any(isinstance(cell(r, c), str) and str(cell(r, c)).strip().lower() == "total"
+                   for c in range(min(4, len(rows[r])))):
+                total_row = r
                 break
         if total_row is not None:
             if total_amt_col is not None:
                 out["__total__"] = cell(total_row, total_amt_col)
             for country, c in amt_cols.items():
-                out[country] = cell(total_row, c)
+                val = cell(total_row, c)
+                if val is not None:
+                    out[country] = val
         return out
 
-    return {"securities": parse_table(find_title("securities/margin")),
-            "real_estate": parse_table(find_title("real estate"))}
+    sec = parse_table(find_title("securities") or find_title("securit") or find_title("margin"))
+    re_ = parse_table(find_title("real", "estate") or find_title("realestate"))
+    return {"securities": sec, "real_estate": re_}
 
 
 def _row_has_content(r) -> bool:

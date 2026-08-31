@@ -252,7 +252,7 @@ def _ratio_value(tables, product, int_key) -> Optional[float]:
         if not tot or not months:
             return None
         v = tot.get(months[-1])
-        return None if v is None else float(v) / 100.0
+        return None if v is None else float(v)     # raw Total (already a fraction)
 
     if int_key == "volatile":
         vol = tables.get("ccpl_volatile") or {}
@@ -278,29 +278,43 @@ def _ratio_value(tables, product, int_key) -> Optional[float]:
         return (total / 1000.0) / den
 
     if int_key in ("ea_prop", "awc_prop"):
-        src = tables.get("ME_EA_AWC") or {}
-        title = EA_TITLE if int_key == "ea_prop" else AWC_TITLE
-        mt = src.get(title) if isinstance(src, dict) else None
+        mt = _ea_awc_num_table(tables, product, int_key)   # SME -> ME table, Wealth -> PvB table
         if mt is None:
             return None
         lines = EA_AWC_ENR_LINES.get(product, CATEGORY_ENR_LINES[product])
-        months = _months(mt)
-        if len(months) <= 12:
-            return None
         enr = tables.get("ENR")
-
-        def agg_ratio(m):
-            num = _sum_country_at(mt, m)
-            den = _sum_lines_at(enr, lines, m)
-            return (num / den) if (num is not None and den) else None
-
-        rc = agg_ratio(months[-1])      # SUM(EA$)/SUM(ENR) at current month
-        rp = agg_ratio(months[-13])     # and 12 months back  -> YoY delta
-        if rc is None or rp is None:
+        month = _at(_months(mt), 0)              # point-in-time: latest month only
+        num = _sum_country_at(mt, month)
+        den = _sum_lines_at(enr, lines, _at(_months(enr), 0))
+        if num is None or not den:
             return None
-        return rc - rp
+        return num / den
 
     return None
+
+
+def _ea_awc_num_table(tables, product, int_key):
+    """EA/AWC numerator MonthTable: SME Banking uses the ME EA/AWC sheet; Wealth
+    products use the PvB EA/AWC sheet (mirrors _ratio_pvb's title selection)."""
+    kind = "EA" if int_key == "ea_prop" else "AWC"
+    if product == "SME Banking":
+        me = tables.get("ME_EA_AWC") or {}
+        return me.get(EA_TITLE if kind == "EA" else AWC_TITLE) or \
+            (me.get("ME EA NPP in $mn") if kind == "EA" else None)
+    pv = tables.get("PvB_EA_AWC") or {}
+    items = list(pv.items())
+    ea_tbl = awc_tbl = None
+    for title, mt in items:
+        t = str(title).lower()
+        if "ea" in t and "awc" not in t:
+            ea_tbl = mt
+        elif "awc" in t and awc_tbl is None:
+            awc_tbl = mt
+    if ea_tbl is None and len(items) >= 2:
+        awc_tbl, ea_tbl = items[0][1], items[1][1]
+    elif len(items) == 1 and awc_tbl is None:
+        awc_tbl = items[0][1]
+    return ea_tbl if kind == "EA" else awc_tbl
 
 
 def _rate_ratio(m, int_key, value):
@@ -463,3 +477,184 @@ def append_all(frames, tables):
         if product_out in PRODUCTS:
             frames[name] = append_group_rows(df, product_out, tables)
     return frames
+
+
+# --------------------------------------------------------------------------- #
+#  GROUP trace - the full arithmetic behind every GROUP row (for auditing)
+# --------------------------------------------------------------------------- #
+def _dpd_parts(tables, product, month):
+    """(sum DPD$, sum category ENR, DPD%) at one month, over ALL countries."""
+    dpd_key, dpd_prod = DPD_LINES[product]
+    num = _sum_product_at(tables.get(dpd_key), dpd_prod, month)
+    den = _sum_lines_at(tables.get("ENR"), CATEGORY_ENR_LINES[product], month)
+    pct = (num / den) if (num is not None and den) else None
+    return num, den, pct
+
+
+def _fmt_m(m):
+    try:
+        return E.fmt_month(m)
+    except Exception:
+        return str(m)
+
+
+def group_trace(frames, tables):
+    """Return {product: [entry, ...]} where each entry documents one GROUP row:
+        {label, kind, value, rating, number, detail: [(what, value), ...]}.
+    The arithmetic mirrors append_group_rows exactly."""
+    out: Dict[str, List[Dict[str, Any]]] = {}
+    for name, frame in frames.items():
+        product = name.replace("IRA - ", "", 1)
+        if product not in PRODUCTS or frame is None or frame.empty:
+            continue
+        out[product] = _trace_group_product(frame, product, tables)
+    return out
+
+
+def _trace_group_product(frame, product, tables):
+    cols = list(frame.columns)
+    lab_col = "Label" if "Label" in cols else cols[1]
+    ctry_col = "Country" if "Country" in cols else cols[0]
+    body = frame[~frame[lab_col].astype(str).str.startswith("Calculated")]
+    body = body[body[ctry_col] != GROUP_COUNTRY]
+    countries = list(dict.fromkeys(body[ctry_col].tolist()))
+    weights = _weights(tables, product, countries)
+    table_ops = TABLE_OP_KEYS.get(product, set(_DPD))
+    metric_defs = C.METRICS[product]()
+    enr = tables.get("ENR")
+
+    num_maps = {}
+    for m in metric_defs:
+        rows = body[body[lab_col] == m["label"]]
+        cmap = {}
+        for _, r in rows.iterrows():
+            n = r.get("Risk Number", "")
+            try:
+                cmap[r[ctry_col]] = float(n) if n not in ("", None) else None
+            except Exception:
+                cmap[r[ctry_col]] = None
+        num_maps[_canon(m["label"])] = cmap
+
+    fam = DET_FAMILY.get(product, "Secured")
+    dpd_group = {ck: _ratio_value(tables, product, ik) for ck, ik in CANON_TO_DPD.items()}
+
+    def rate_dpd(canon, value):
+        if value is None:
+            return ""
+        if canon == "1c":
+            return C.r_deterioration(value, C.DET_SINGLE[fam])
+        ctx = {"1bi": dpd_group.get("1bi"), "1bii": dpd_group.get("1bii")}
+        return C.r_deterioration_pair(ctx, C.DET_PAIR[fam])
+
+    group_num, entries = {}, []
+    for m in metric_defs:
+        canon = _canon(m["label"])
+        int_key = getattr(m.get("value"), "int_key", m.get("value"))
+        if (not int_key) and canon in CANON_TO_DPD:
+            int_key = CANON_TO_DPD[canon]
+        detail = []
+        if int_key in table_ops:
+            kind = "table operation (all countries)"
+            if int_key in _DPD:
+                val = dpd_group.get(canon)
+                rating = rate_dpd(canon, val)
+                months = _months(tables.get(DPD_LINES[product][0]))
+                p = {"1bi": (0, 3), "1bii": (1, 4), "1c": (0, 12)}[canon]
+                mc, mr = _at(months, p[0]), _at(months, p[1])
+                nc, dc, pc = _dpd_parts(tables, product, mc)
+                nr, dr, pr = _dpd_parts(tables, product, mr)
+                detail = [(f"sum DPD$ @ {_fmt_m(mc)}", nc), (f"sum ENR @ {_fmt_m(mc)}", dc),
+                          (f"DPD% @ {_fmt_m(mc)}", _fmt_pct(pc)),
+                          (f"sum DPD$ @ {_fmt_m(mr)}", nr), (f"sum ENR @ {_fmt_m(mr)}", dr),
+                          (f"DPD% @ {_fmt_m(mr)}", _fmt_pct(pr)),
+                          ("= current - reference", _fmt_pct(val))]
+                if canon == "1bi":
+                    detail.append(("pair-rated with 1bii (AND)", _fmt_pct(dpd_group.get("1bii"))))
+            else:
+                val = _ratio_value(tables, product, int_key)
+                rating = _rate_ratio(m, int_key, val)
+                detail = _ratio_detail(tables, product, int_key, val)
+            display = _fmt_pct(val)
+            number = E.RISK_NUMBER.get(rating) if rating else None
+        else:
+            kind = "ENR-weighted (country %)"
+            ov = WEIGHT_OVERRIDE.get((product, canon))
+            w = _weights(tables, product, countries, lines=ov) if ov else weights
+            lines = ov or CATEGORY_ENR_LINES[product]
+            total = _sum_lines_at(enr, lines, _at(_months(enr), 0))
+            wsum = _weighted_number(num_maps.get(canon, {}), w)
+            detail.append((f"total ENR (all countries) = weight denominator", round(total, 2) if total else total))
+            for c in countries:
+                rn = num_maps.get(canon, {}).get(c)
+                wt = w.get(c)
+                if rn is None or wt is None:
+                    continue
+                detail.append((f"{c}:  risk {int(rn)}  x  weight {wt*100:.2f}%", round(rn * wt, 4)))
+            if wsum is None:
+                number, rating, display = None, "", ""
+                detail.append(("no config country had a risk number", ""))
+            else:
+                number = min(5, max(1, _round_half_up(wsum)))
+                rating = _NUM_TO_RATING[number]
+                display = round(wsum, 3)
+                detail.append(("weighted sum", round(wsum, 4)))
+                detail.append((f"rounded to nearest 1..5", number))
+        group_num[canon] = number
+        entries.append({"label": m["label"], "kind": kind, "value": display,
+                        "rating": rating, "number": number, "detail": detail})
+
+    # inherent
+    groups = C.AGG_GROUPS.get(product, [])
+    weight = (1.0 / len(groups)) if (C.NORMALISE_WEIGHTS and groups) else C.W6
+    ordered = [_canon(mm["label"]) for mm in metric_defs]
+    score, idetail = 0.0, [(f"theme weight = {weight:.4f}  (1bii excluded)", "")]
+    for positions in groups:
+        labs = [ordered[p - 1] for p in positions if 1 <= p <= len(ordered)]
+        pairs = [(lb, group_num.get(lb)) for lb in labs if lb not in INHERENT_EXCLUDE_CANON]
+        valid = [n for _, n in pairs if n is not None]
+        mx = max(valid) if valid else None
+        if mx is not None:
+            score += weight * mx
+        idetail.append((f"theme {labs}: max risk = {mx}", (round(weight * mx, 4) if mx is not None else 0)))
+    entries.append({"label": C.FINAL_LABEL, "kind": "inherent (worst per theme x weight)",
+                    "value": round(score, 4), "rating": _score_to_rating(score if score else None),
+                    "number": "", "detail": idetail + [("score", round(score, 4))]})
+    return entries
+
+
+def _ratio_detail(tables, product, int_key, val):
+    enr = tables.get("ENR")
+    if int_key == "policy_exc_rate":
+        prod = DPD_LINES[product][1]
+        pol = tables.get("policy_exception") or {}
+        num = _sum_last12_product(pol.get("left"), prod) + _sum_last12_product(pol.get("right"), prod)
+        den = _sum_last12_product(tables.get("new_approved"), prod)
+        return [("sum L2+L3 (last 12m, all countries)", round(num, 4)),
+                ("sum new approved (last 12m)", round(den, 4)), ("= ratio", _fmt_pct(val))]
+    if int_key == "ltv":
+        return [("LTV>80 'Total' row (raw fraction)", _fmt_pct(val))]
+    if int_key == "volatile":
+        vol = tables.get("ccpl_volatile") or {}
+        g = vol.get("Total", vol.get("Global"))
+        return [("CCPL portfolio 'Global'/'Total' value", _fmt_pct(g))]
+    if int_key in ("ea_prop", "awc_prop"):
+        mt = _ea_awc_num_table(tables, product, int_key)
+        lines = EA_AWC_ENR_LINES.get(product, CATEGORY_ENR_LINES[product])
+        src = "ME" if product == "SME Banking" else "PvB"
+        month = _at(_months(mt), 0) if mt is not None else None
+        num = _sum_country_at(mt, month) if mt is not None else None
+        den = _sum_lines_at(enr, lines, _at(_months(enr), 0))
+        return [(f"sum {'EA' if int_key=='ea_prop' else 'AWC'}$ ({src} table) @ {_fmt_m(month)}",
+                 round(num, 4) if num is not None else None),
+                (f"sum ENR ({'/'.join(lines)}) @ latest", round(den, 2) if den else den),
+                ("= ratio (point-in-time)", _fmt_pct(val))]
+    if int_key == "shortfall":
+        wm = tables.get("wm_shortfall") or {}
+        sec = (wm.get("securities") or {}).get("__total__")
+        re_ = (wm.get("real_estate") or {}).get("__total__")
+        den = _sum_product_at(enr, "Wealth Banking", _at(_months(enr), 0))
+        return [("securities Total-Amount", sec), ("real-estate Total-Amount", re_),
+                ("(sum) / 1000", round(((sec or 0) + (re_ or 0)) / 1000.0, 4)),
+                ("sum ENR Wealth Banking (all countries)", round(den, 2) if den else den),
+                ("= ratio", _fmt_pct(val))]
+    return [("value", _fmt_pct(val))]

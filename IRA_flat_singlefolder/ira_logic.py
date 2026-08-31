@@ -323,12 +323,73 @@ def _trace_sheet(wb, product, frames, intermediates, first=False):
     ws.freeze_panes = "A5"
 
 
-def build_trace_workbook(frames, intermediates) -> bytes:
-    """A workbook with one Trace sheet per product (relevant values + ratings)."""
+def _group_trace_sheet(wb, frames, tables):
+    """One 'GROUP calc trace' sheet: the full arithmetic behind every GROUP row."""
+    if tables is None:
+        return
+    try:
+        from . import ira_group as G
+    except ImportError:
+        import ira_group as G
+    from openpyxl.styles import PatternFill
+    from openpyxl.utils import get_column_letter
+    S = _styling()
+    ws = wb.create_sheet("GROUP calc trace")
+    ws["A1"] = "GROUP calc trace - the full arithmetic behind every Country='GROUP' row"
+    ws["A1"].font = S["TITLE"]
+    ws["A2"] = ("Table-operation labels sum over ALL countries; ENR-weighted labels list each "
+                "config country's (risk number x ENR weight). Weight = country ENR / total ENR over all countries.")
+    ws["A2"].font = S["BODY"]
+    heads = ["Product / Label", "Detail", "Value", "Rating", "Risk No."]
+    widths = [44, 46, 16, 12, 9]
+    for i, h in enumerate(heads):
+        c = ws.cell(4, i + 1, h); c.font = S["HFONT"]; c.fill = S["FILL"]
+        c.alignment = S["CENTER"]; c.border = S["BORDER"]
+        ws.column_dimensions[get_column_letter(i + 1)].width = widths[i]
+    try:
+        trace = G.group_trace(frames, tables)
+    except Exception as e:
+        ws.cell(5, 1, "GROUP trace unavailable: " + str(e)).font = S["BODY"]
+        return
+    r = 5
+    for product in PRODUCTS:
+        entries = trace.get(product)
+        if not entries:
+            continue
+        cell = ws.cell(r, 1, "GROUP - " + product); cell.font = S["SUB"]
+        for cc in range(1, 6):
+            ws.cell(r, cc).fill = S["FILL"]; ws.cell(r, cc).font = S["HFONT"]; ws.cell(r, cc).border = S["BORDER"]
+        ws.cell(r, 1, "GROUP - " + product)
+        r += 1
+        for e in entries:
+            ws.cell(r, 1, e["label"]).font = S["BOLD"]
+            ws.cell(r, 2, e["kind"]).font = S["BODY"]
+            ws.cell(r, 3, e["value"]).font = S["BOLD"]
+            rt = str(e["rating"] or "")
+            rc = ws.cell(r, 4, rt); rc.font = S["BOLD"]
+            rc.fill = PatternFill("solid", fgColor=RATING_FILL.get(rt, "FFFFFF"))
+            ws.cell(r, 5, (e["number"] if e["number"] not in (None, "") else "")).font = S["BOLD"]
+            for cc in range(1, 6):
+                ws.cell(r, cc).border = S["BORDER"]; ws.cell(r, cc).alignment = S["WRAP"]
+            r += 1
+            for what, val in e["detail"]:
+                ws.cell(r, 2, what).font = S["BODY"]
+                ws.cell(r, 3, val).font = S["BODY"]
+                for cc in range(1, 6):
+                    ws.cell(r, cc).border = S["BORDER"]; ws.cell(r, cc).alignment = S["WRAP"]
+                r += 1
+        r += 1
+    ws.freeze_panes = "A5"
+
+
+def build_trace_workbook(frames, intermediates, tables=None) -> bytes:
+    """A workbook with one Trace sheet per product (relevant values + ratings),
+    plus a 'GROUP calc trace' sheet when tables are provided."""
     from openpyxl import Workbook
     wb = Workbook()
     for i, p in enumerate(PRODUCTS):
         _trace_sheet(wb, p, frames, intermediates, first=(i == 0))
+    _group_trace_sheet(wb, frames, tables)
     bio = io.BytesIO(); wb.save(bio); return bio.getvalue()
 
 
@@ -446,6 +507,7 @@ def build_logic_workbook(frames, intermediates, tables=None) -> bytes:
     # ---- Trace sheets (live) ----
     for p in PRODUCTS:
         _trace_sheet(wb, p, frames, intermediates, first=False)
+    _group_trace_sheet(wb, frames, tables)
 
     bio = io.BytesIO(); wb.save(bio); return bio.getvalue()
 
@@ -498,8 +560,8 @@ def _reference_sheets(wb, S, hdr, row):
                         ("1bii", "QoQ Deterioration 30+ prior", DETp, "Deterioration pair (AND)"),
                         ("1c", "YoY Deterioration 30+", DETy, "Deterioration"),
                         ("1d", "Country 30+ share", SHARE, "1d 30+ share (SME)"),
-                        ("1e", "EA proportion (YoY)", "(EA$/ENR)[cur] - (EA$/ENR)[cur-12m]; ENR Product = ME", "EA (SME)"),
-                        ("1f", "AWC proportion (YoY)", "(AWC$/ENR)[cur] - (AWC$/ENR)[cur-12m]; ENR Product = ME", "AWC (SME)"),
+                        ("1e", "EA proportion", "latest EA $ / latest ENR (Product = ME)", "EA (SME)"),
+                        ("1f", "AWC proportion", "latest AWC $ / latest ENR (Product = ME)", "AWC (SME)"),
                         ("1g", "Policy exceptions rate", POL, "Policy (SME/Wealth)"),
                         ("1h", "Active dispensations", DISP, "Dispensations"),
                         ("1i", "Breaches last 12m", BRCH, "Breaches"),
@@ -508,8 +570,8 @@ def _reference_sheets(wb, S, hdr, row):
         "Wealth Lending / Retail / PvB": [
             ("1a", "Asset Growth YoY %", YOY + " (total = Wealth+PvB; Retail = Wealth; PvB = PvB)", "ENR-YoY (others)"),
             ("1bi/ii,1c", "Deterioration 30+", "per-country blank for PvB; GROUP uses 30+$ Wealth Banking", "Deterioration"),
-            ("1d", "EA proportion (YoY)", "(EA$/ENR)[cur] - (EA$/ENR)[cur-12m]; ENR Product = PvB; blank for Retail", "EA/AWC (Wealth)"),
-            ("1e", "AWC proportion (YoY)", "(AWC$/ENR)[cur] - (AWC$/ENR)[cur-12m]; ENR Product = PvB; blank for Retail", "EA/AWC (Wealth)"),
+            ("1d", "EA proportion", "latest EA $ / latest ENR (Product = PvB); blank for Retail", "EA/AWC (Wealth)"),
+            ("1e", "AWC proportion", "latest AWC $ / latest ENR (Product = PvB); blank for Retail", "EA/AWC (Wealth)"),
             ("1f", "Shortfall", "(securities Total + real-estate Total for country)/1000 / ENR Wealth Banking; Wealth+PvB only, blank for Retail", "Shortfall (Wealth)"),
             ("1g", "Policy exceptions rate", POL, "Policy (SME/Wealth)"),
             ("1h", "Active dispensations", DISP, "Dispensations"),
@@ -619,16 +681,16 @@ def _reference_sheets(wb, S, hdr, row):
          "SUM(L2+L3 over 12m, all) / SUM(new approved over 12m, all)",
          "Secured/Unsec 1e, SME/Wealth 1g"),
         ("LTV>80 (Secured 1g)",
-         "the LTV>80 table's own 'Total' row / 100",
+         "the LTV>80 table's own 'Total' row (raw fraction)",
          "point-in-time, latest month"),
         ("volatile (Unsecured 1g)",
          "the CCPL table's portfolio 'Global' value",
          "GROUP only; per-country reads each country's own 2/3-letter code"),
         ("EA proportion (SME 1e, Wealth 1d)",
-         "YoY: [SUM(EA$)/SUM(ENR)]cur - [SUM(EA$)/SUM(ENR)]cur-12m (ENR: SME=ME, Wealth=PvB)",
-         "denominator ENR: SME = Product 'ME'; Wealth = Product 'PvB'"),
+         "SUM(EA$, all countries, latest) / SUM(ENR, latest); ENR: SME=ME, Wealth=PvB",
+         "numerator: SME = ME EA/AWC table, Wealth = PvB EA/AWC table; denom ENR: SME=ME, Wealth=PvB"),
         ("AWC proportion (SME 1f, Wealth 1e)",
-         "YoY: [SUM(AWC$)/SUM(ENR)]cur - [SUM(AWC$)/SUM(ENR)]cur-12m",
+         "SUM(AWC$, all countries, latest) / SUM(ENR, latest)",
          "table op for SME & Wealth Lending; Retail/PvB EA-AWC are ENR-weighted"),
         ("shortfall (Wealth 1f)",
          "(securities Total-Amount + real-estate Total-Amount)/1000 / SUM(ENR Wealth Banking)",

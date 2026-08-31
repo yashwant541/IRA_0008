@@ -65,6 +65,60 @@ def _title_of(row: List[Any]) -> Optional[str]:
         return nb[0][1].strip()
     return None
 
+def _is_reference_title(value: Any) -> bool:
+    """
+    Return True only when the value is a recognized reference-table title.
+
+    A country row can contain only one populated text cell, so a generic
+    one-cell-text test is not sufficient to identify a table title.
+    """
+    if value is None:
+        return False
+
+    low = re.sub(
+        r"\s+",
+        " ",
+        str(value).replace("\xa0", " ").strip().lower()
+    )
+
+    if not low:
+        return False
+
+    # Dispensations
+    if (
+        "active or expired" in low
+        or "active/expired" in low
+        or "dispensation" in low
+    ):
+        return True
+
+    # CRA breaches
+    if (
+        "credit risk appetite breaches" in low
+        or ("appetite" in low and "breach" in low)
+    ):
+        return True
+
+    # Sovereign
+    if (
+        "sovereign" in low
+        or (
+            "outlook" in low
+            and ("crg" in low or "rating" in low)
+        )
+    ):
+        return True
+
+    # Property Price Index
+    if "property price index" in low or low == "ppi":
+        return True
+
+    # Interest rates
+    if low == "interest rates" or "interest rate" in low:
+        return True
+
+    return False
+
 
 def _category_from(title: str) -> Optional[str]:
     """Map a table title to a category by EXACT, case-insensitive word match.
@@ -87,18 +141,45 @@ def _category_from(title: str) -> Optional[str]:
     return None
 
 
-def _block(rows: List[List[Any]], start: int) -> Tuple[List[List[Any]], int]:
-    """Consecutive non-blank rows from `start` until a fully-blank row/new title."""
-    out = []
+def _block(
+    rows: List[List[Any]],
+    start: int
+) -> Tuple[List[List[Any]], int]:
+    """
+    Extract rows belonging to the current reference table.
+
+    Stop at:
+      1. a fully blank row, or
+      2. the next recognized reference-table title.
+
+    Important:
+    A row containing only a country name is not a table title. This occurs
+    frequently in CRA breach tables where that country has no breaches.
+    """
+    out: List[List[Any]] = []
     i = start
+
     while i < len(rows):
-        r = rows[i]
-        if all(_blank(c) for c in r):
+        row = rows[i]
+
+        # A genuinely blank row terminates the current table.
+        if all(_blank(cell) for cell in row):
             break
-        if out and _title_of(r):     # a new title starts the next block
+
+        candidate_title = _title_of(row)
+
+        # Only a recognized reference-table title starts the next block.
+        # Do not stop on one-cell country rows such as ["Bahrain", None, ...].
+        if (
+            out
+            and candidate_title is not None
+            and _is_reference_title(candidate_title)
+        ):
             break
-        out.append(r)
+
+        out.append(row)
         i += 1
+
     return out, i
 
 

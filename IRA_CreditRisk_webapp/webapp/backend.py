@@ -413,6 +413,10 @@ def _excel(frames, inter, mapping, overrides=None, manual=None):
     from openpyxl import load_workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
+    try:
+        from IRA import ira_build as _IRB
+    except Exception:
+        import ira_build as _IRB
     fills = {"Very Low":"C6EFCE","Low":"D9EAD3","Medium":"FFF2CC","High":"FCE5CD","Very High":"F4CCCC","Not Available":"EFEFEF"}
     ov = {(o["product"], o["country"]): o for o in (overrides or [])}
     buf = io.BytesIO()
@@ -421,6 +425,10 @@ def _excel(frames, inter, mapping, overrides=None, manual=None):
             df = frames.get(f"IRA - {cat}")
             if df is None: continue
             if overrides: df = _inject(df, cat, ov)
+            try:
+                df = _IRB.attach_rating_formula(df, cat)   # download-only formula column
+            except Exception:
+                pass
             df.to_excel(xw, sheet_name=cat[:31], index=False)
         if overrides: pd.DataFrame(overrides).to_excel(xw, sheet_name="Overrides", index=False)
         if manual: pd.DataFrame(manual).to_excel(xw, sheet_name="Manual Numbers", index=False)
@@ -831,7 +839,7 @@ try:
         if IL is None:
             return _J({"ok": False, "error": "Trace builder (IRA.ira_logic) is not available - ensure the IRA library is on the path."}, 500)
         try:
-            data = IL.build_trace_workbook(c["frames"], c.get("intermediates") or {})
+            data = IL.build_trace_workbook(c["frames"], c.get("intermediates") or {}, c.get("tables"))
             period = _period_label(c["meta"]).replace(" ", "_").replace("/", "-") or "period"
             return app.response_class(
                 data, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

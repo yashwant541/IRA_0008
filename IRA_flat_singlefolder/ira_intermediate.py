@@ -337,12 +337,15 @@ def _build_wealth_family(tables, countries_per_category, put):
             put("dpd_yoy", country, prod, v, why, comp)
 
         # ---- 1d/1e EA & AWC: total via ME table over PvB ENR; PvB via PvB table
-        v, why, comp = _ratio_of_enr(tables, country, WL_PVB_CANON, kind="EA")
+        v, why, comp = _ratio_pvb(tables, country, kind="EA")
         put("ea_prop", country, WL_TOTAL, v, why, comp)
-        v, why, comp = _ratio_of_enr(tables, country, WL_PVB_CANON, kind="AWC")
+
+        v, why, comp = _ratio_pvb(tables, country, kind="AWC")
         put("awc_prop", country, WL_TOTAL, v, why, comp)
+
         v, why, comp = _ratio_pvb(tables, country, kind="EA")
         put("ea_prop", country, WL_PVB, v, why, comp)
+
         v, why, comp = _ratio_pvb(tables, country, kind="AWC")
         put("awc_prop", country, WL_PVB, v, why, comp)
         # Retail EA/AWC intentionally blank (config uses v_blank)
@@ -407,47 +410,37 @@ def _policy_exc(tables, country, prod_in):
     return numer / denom, "", comp
 
 
-def _ratio_of_enr(tables, country, prod_in, kind="EA", period=12):
-    """YoY of the EA (or AWC) proportion:
-       (EA$[current] / ENR[current]) - (EA$[current-12m] / ENR[current-12m]).
-       ENR product is 'ME' for SME Banking and 'PvB' for Wealth Lending."""
+def _ratio_of_enr(tables, country, prod_in, kind="EA"):
     me = tables.get("ME_EA_AWC") or {}
+
     if kind == "EA":
         tbl = me.get("ME EA (PP & NPP) in $mn") or me.get("ME EA NPP in $mn")
     else:
         tbl = me.get("ME AWC in $mn")
+
     if tbl is None:
         return None, f"{kind} table not found in ME EA AWC", {}
-    ea_s = tbl.series_c(country)
+
+    num = E.latest(tbl.series_c(country), tbl.months)
+
     enr = tables.get("ENR")
-    enr_s = enr.series_pp(country, prod_in) if enr else None
-    if ea_s is None:
-        return None, f"{country} not in {kind} table", {}
-    if enr_s is None:
-        return None, f"{country} not in ENR '{prod_in}'", {}
-    m = tbl.months
-    if len(m) <= period:
-        return None, f"need >= {period+1} months for YoY", {}
-    m_cur, m_prior = m[-1], m[-1 - period]
+    den = E.latest(
+        enr.series_pp(country, prod_in),
+        enr.months
+    ) if enr else None
 
-    def ratio(mm):
-        e, n = ea_s.get(mm), enr_s.get(mm)
-        if e is None or n in (None, 0):
-            return None
-        return e / n
+    comp = {
+        kind: num,
+        "ENR": den
+    }
 
-    rc, rp = ratio(m_cur), ratio(m_prior)
-    comp = {f"{kind} {E.fmt_month(m_cur)}": ea_s.get(m_cur),
-            f"ENR({prod_in}) {E.fmt_month(m_cur)}": enr_s.get(m_cur),
-            f"{kind} {E.fmt_month(m_prior)}": ea_s.get(m_prior),
-            f"ENR({prod_in}) {E.fmt_month(m_prior)}": enr_s.get(m_prior),
-            "ratio_current": rc, "ratio_prior": rp, "basis": "YoY (current - 12m)"}
-    if rc is None:
-        return None, "current-month ratio missing", comp
-    if rp is None:
-        return None, f"{period}m-back ratio missing", comp
-    return rc - rp, "", comp
+    if num is None:
+        return None, f"{country} not in {kind} table", comp
 
+    if den in (None, 0):
+        return None, "ENR denominator missing/zero", comp
+
+    return num / den, "", comp
 
 # ---- Wealth Lending family helpers (ENR sum, PvB EA/AWC) ------------------- #
 def _sum_series(tbl, country, prods):
@@ -522,28 +515,28 @@ def _ratio_pvb(tables, country, kind="EA"):
     if enr_s is None:
         return None, "PvB ENR series missing", {}
     m = tbl.months
-    period = 12
-    if len(m) <= period:
-        return None, f"need >= {period+1} months for YoY", {}
-    m_cur, m_prior = m[-1], m[-1 - period]
 
-    def ratio(mm):
-        e, n = ea_s.get(mm), enr_s.get(mm)
-        if e is None or n in (None, 0):
-            return None
-        return e / n
+    if not m:
+        return None, "no month columns found", {}
 
-    rc, rp = ratio(m_cur), ratio(m_prior)
-    comp = {f"{kind} {E.fmt_month(m_cur)}": ea_s.get(m_cur),
-            f"PvB ENR {E.fmt_month(m_cur)}": enr_s.get(m_cur),
-            f"{kind} {E.fmt_month(m_prior)}": ea_s.get(m_prior),
-            f"PvB ENR {E.fmt_month(m_prior)}": enr_s.get(m_prior),
-            "ratio_current": rc, "ratio_prior": rp, "basis": "YoY (current - 12m)"}
-    if rc is None:
-        return None, "current-month ratio missing", comp
-    if rp is None:
-        return None, f"{period}m-back ratio missing", comp
-    return rc - rp, "", comp
+    m_cur = m[-1]
+
+    num = ea_s.get(m_cur)
+    den = enr_s.get(m_cur)
+
+    comp = {
+        f"{kind} {E.fmt_month(m_cur)}": num,
+        f"PvB ENR {E.fmt_month(m_cur)}": den,
+        "basis": f"Current {kind} / Current PvB ENR"
+    }
+
+    if num is None:
+        return None, f"{country} not in PvB {kind} table", comp
+
+    if den in (None, 0):
+        return None, "PvB ENR denominator missing/zero", comp
+
+    return num / den, "", comp
 
 
 def _shortfall(tables, country):
@@ -608,7 +601,7 @@ def _ltv(tables, country):
     v = E.latest(s, tbl.months) if s else None
     if v is None:
         return None, f"{country} not in LTV table (and no Group row)", {}
-    return v / 100.0, "", {"ltv_raw": v, "basis": "value/100"}
+    return (v*100.0) / 100.0, "", {"ltv_raw": v, "basis": "value/100"}
 
 
 # CCPL Volatile sheet keys countries by a 2/3-letter code (Global = portfolio).

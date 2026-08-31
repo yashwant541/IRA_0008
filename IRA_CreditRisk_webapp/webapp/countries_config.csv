@@ -1,0 +1,51 @@
+﻿Category,Country,Include
+Secured,Hong Kong,Yes
+Secured,Korea SCBK,Yes
+Secured,Singapore,Yes
+Secured,Taiwan,Yes
+Secured,Malaysia,Yes
+Secured,India,Yes
+Secured,China,Yes
+Secured,UAE,Yes
+Secured,Vietnam,Yes
+Secured,Jersey,Yes
+Secured,Bangladesh,Yes
+Secured,Brunei,Yes
+Secured,Nepal,Yes
+Secured,Kenya,Yes
+Secured,Botswana,Yes
+Secured,Pakistan,Yes
+Unsecured,Hong Kong,Yes
+Unsecured,Korea SCBK,Yes
+Unsecured,China,Yes
+Unsecured,Singapore,Yes
+Unsecured,Taiwan,Yes
+Unsecured,India,Yes
+Unsecured,Malaysia,Yes
+Unsecured,Botswana,Yes
+Unsecured,Bahrain,Yes
+Unsecured,Bangladesh,Yes
+Unsecured,Vietnam,Yes
+Unsecured,Kenya,Yes
+Unsecured,UAE,Yes
+Unsecured,Indonesia,Yes
+SME Banking,India,Yes
+SME Banking,Korea SCBK,Yes
+SME Banking,Hong Kong,Yes
+SME Banking,Singapore,Yes
+SME Banking,Malaysia,Yes
+SME Banking,China,Yes
+SME Banking,Nepal,Yes
+SME Banking,Vietnam,Yes
+Wealth Lending,Singapore,Yes
+Wealth Lending,Hong Kong,Yes
+Wealth Lending,Jersey,Yes
+Wealth Lending,UAE,Yes
+Wealth Lending,Malaysia,Yes
+Wealth Lending,Korea SCBK,Yes
+Wealth Lending,Nigeria,Yes
+Wealth Lending - Private Banking,UAE,Yes
+Wealth Lending - Private Banking,Hong Kong,Yes
+Wealth Lending - Private Banking,Jersey,Yes
+Wealth Lending - Private Banking,Singapore,Yes
+Wealth Lending - Private Banking,UK,Yes

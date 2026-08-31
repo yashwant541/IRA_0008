@@ -1,0 +1,72 @@
+<div id="iraApp" class="app-shell">
+  <aside class="sidebar" aria-label="IRA workflow navigation">
+    <div class="brand"><div class="brand-mark">IRA</div><div><strong>Credit Risk</strong><span>Assessment Workbench</span></div></div>
+    <nav id="sideNav" class="side-nav">
+      <button class="nav-item active" data-page="login"><span>01</span><div>Sign in<small>PSID access</small></div><b>•</b></button>
+      <button class="nav-item" data-page="upload" disabled><span>02</span><div>Datasets<small>Upload inputs</small></div><b>•</b></button>
+      <button class="nav-item" data-page="validation" disabled><span>03</span><div>Data checks<small>Tables and schema</small></div><b>•</b></button>
+      <button class="nav-item" data-page="run" disabled><span>04</span><div>Run assessment<small>Process datasets</small></div><b>•</b></button>
+      <button class="nav-item" data-page="missing" disabled><span>05</span><div>Missing data<small>Fill or skip</small></div><b>•</b></button>
+      <button class="nav-item" data-page="output" disabled><span>06</span><div>Assessment output<small>Review and download</small></div><b>•</b></button>
+      <button class="nav-item" data-page="final" disabled><span>07</span><div>Final assessment<small>Product and country</small></div><b>•</b></button>
+    </nav>
+    <div class="sidebar-foot"><span class="pulse"></span><div><strong id="sessionPsid">Not signed in</strong><small id="sessionState">Session inactive</small></div></div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar"><div><p class="eyebrow" id="pageKicker">ACCESS</p><h1 id="pageTitle">Welcome to IRA Credit Risk</h1><p id="pageSubtitle">Sign in with your PSID to start a controlled assessment run.</p></div><div class="top-actions"><span id="runChip" class="chip" hidden></span><button id="btnReset" class="icon-btn" title="Start a new run" hidden>↻</button></div></header>
+
+    <section class="page active" id="page-login">
+      <div class="hero-grid">
+        <article class="card login-card"><div class="icon-box">ID</div><p class="eyebrow">SECURE ACCESS</p><h2>Start your assessment</h2><p class="muted">Enter your PSID. It will be recorded against the run and final assessment.</p><form id="loginForm"><label>PSID<input id="psid" class="input" autocomplete="username" maxlength="40" placeholder="e.g. 1234567 or ABC123" required></label><button class="btn primary wide" type="submit">Continue to datasets <span>→</span></button></form><p class="privacy">🔒 Your PSID is used only for run identification and audit history.</p></article>
+        <article class="card journey"><p class="eyebrow">GUIDED WORKFLOW</p><h2>One clear path from input to approval</h2><div class="journey-list"><div><span>1</span><p><b>Upload</b><small>Add the MI workbook, other tables and country configuration.</small></p></div><div><span>2</span><p><b>Validate</b><small>Confirm required tables, columns and cross-table schemas.</small></p></div><div><span>3</span><p><b>Assess</b><small>Run the IRA engine and review calculated outcomes.</small></p></div><div><span>4</span><p><b>Finalize</b><small>Record the final rating for each Product and Country.</small></p></div></div></article>
+      </div>
+    </section>
+
+    <section class="page" id="page-upload">
+      <div class="section-head"><div><p class="eyebrow">INPUT DATA</p><h2>Upload assessment datasets</h2><p class="muted">All three inputs are required. Files are held temporarily for the active run.</p></div><span class="progress-pill"><b id="uploadCount">0</b>/3 ready</span></div>
+      <div class="upload-grid">
+        <label class="upload-card" data-key="mi"><input type="file" accept=".xlsx,.xls,.xlsm,.xlsb" hidden><span class="file-icon blue">▦</span><div><h3>MI workbook <em>Required</em></h3><p>Main assessment data and product tables.</p><small>.xlsx, .xls, .xlsm, .xlsb</small></div><strong class="file-state">Choose file</strong></label>
+        <label class="upload-card" data-key="other"><input type="file" accept=".xlsx,.xls,.xlsm,.xlsb" hidden><span class="file-icon teal">▤</span><div><h3>Other tables <em>Required</em></h3><p>Sovereign, dispensations, breaches, PPI and interest.</p><small>.xlsx, .xls, .xlsm, .xlsb</small></div><strong class="file-state">Choose file</strong></label>
+        <label class="upload-card" data-key="config"><input type="file" accept=".csv,.xlsx,.xls" hidden><span class="file-icon violet">◎</span><div><h3>Country config <em>Required</em></h3><p>Category, Country and Include controls.</p><small>.csv, .xlsx, .xls</small></div><strong class="file-state">Choose file</strong></label>
+      </div>
+      <div class="card run-details"><div><h3>Run details</h3><p class="muted">Used in output naming and audit history.</p></div><label>Quarter<select id="quarter" class="input"><option>Q1</option><option>Q2</option><option>Q3</option><option>Q4</option></select></label><label>Year<input id="year" type="number" class="input" min="2000" max="2100"></label></div>
+      <div class="footer-actions"><span></span><button id="btnValidate" class="btn primary" disabled>Validate datasets <span>→</span></button></div>
+    </section>
+
+    <section class="page" id="page-validation">
+      <div class="section-head"><div><p class="eyebrow">QUALITY GATE</p><h2>Dataset validation</h2><p class="muted">The assessment can run only after every blocking check passes.</p></div><span id="validationSummary" class="status-badge neutral">Not checked</span></div>
+      <div id="validationStats" class="stats"></div>
+      <article class="card"><div class="card-head"><div><h3>Required table availability</h3><p class="muted">Every input table expected by the assessment engine.</p></div><button class="btn ghost small" id="btnRevalidate">Run checks again</button></div><div id="tableChecks" class="table-wrap"></div></article>
+      <article class="card"><div class="card-head"><div><h3>Schema consistency</h3><p class="muted">Column order is ignored. Configured date columns are excluded from comparison.</p></div><div class="legend"><i class="ok"></i> Match <i class="bad"></i> Issue</div></div><div id="schemaChecks" class="table-wrap"></div></article>
+      <article id="issuePanel" class="card issue-card"><div class="card-head"><div><h3>Items to resolve</h3><p class="muted">Exact table and missing column details are shown below.</p></div><span id="issueCount" class="count-badge">0</span></div><div id="issues"></div></article>
+      <article class="card" id="tablesCard"><div class="card-head"><div><h3>View parsed tables</h3><p class="muted">Inspect each table exactly as the engine parsed your upload. If something looks off, copy it out and check.</p></div><span id="tablesCount" class="count-badge">0</span></div><div class="filters" style="margin-bottom:12px"><select id="tableSelect" class="input"></select><button id="btnCopyTable" class="btn ghost small">⧉ Copy table</button></div><div id="tableView" class="table-wrap tall"></div></article>
+      <div class="footer-actions"><button class="btn ghost" data-go="upload">← Back to uploads</button><button id="btnGoRun" class="btn primary" disabled>Continue to run <span>→</span></button></div>
+    </section>
+
+    <section class="page" id="page-run">
+      <div class="center-stage card"><span class="run-orb">▶</span><p class="eyebrow">READY TO PROCESS</p><h2>All validation checks passed</h2><p class="muted">The uploaded datasets are ready for the Inherent Credit Risk Assessment engine.</p><div id="runRecap" class="recap"></div><button id="btnRun" class="btn primary large">Run assessment</button><div id="runProgress" class="run-progress" hidden><div class="spinner"></div><div><b>Assessment is running</b><small id="runProgressText">Preparing datasets…</small></div></div></div>
+    </section>
+
+    <section class="page" id="page-missing">
+      <div class="section-head"><div><p class="eyebrow">DATA COMPLETENESS</p><h2>Missing data</h2><p class="muted">Values the engine could not compute came out Not Available. Fill any of them in here — each is re-rated and the calculated rating recomputes — or skip straight to the assessment output.</p></div><span id="missingBadge" class="progress-pill">0 missing</span></div>
+      <article class="card" id="manualCard"><div class="card-head"><div><h3>Not-Available values</h3><p class="muted">Enter a number to fill one in. It is flagged as manually entered and written to a "Manual Numbers" sheet in the output.</p></div><button class="btn ghost small" id="btnRefreshNA">Refresh list</button></div><div id="manualList" class="table-wrap tall"></div></article>
+      <div class="footer-actions"><button class="btn ghost" data-go="run">← Back to run</button><button id="btnSkipMissing" class="btn primary" data-go="output">Skip to next: Assessment output <span>→</span></button></div>
+    </section>
+
+    <section class="page" id="page-output">
+      <div class="section-head"><div><p class="eyebrow">CALCULATED RESULT</p><h2>Assessment output</h2><p class="muted">Review the engine output before recording the final assessment.</p></div><div class="filters"><select id="productFilter" class="input"></select><select id="countryFilter" class="input"></select></div></div>
+      <div id="outputStats" class="stats"></div><article class="card"><div id="resultTable" class="table-wrap tall"></div></article>
+      <article class="card" id="flowCard" hidden><div class="card-head"><div><h3>Table flow (layer to layer)</h3><p class="muted">Raw sheet → Parsed table → Formula → Product output, for every label.</p></div><div class="legend"><i style="background:#eaf1ff"></i> Raw <i style="background:#e5f8f6"></i> Parsed <i style="background:#fff7e6"></i> Formula <i style="background:#f1ebff"></i> Product</div></div><div class="filters" style="margin-bottom:12px"><select id="flowProduct" class="input"></select></div><div id="flowTable" class="table-wrap"></div></article>
+      <div class="footer-actions"><div class="filters"><button class="btn ghost" data-go="missing">← Missing data</button><button id="btnDownload" class="btn ghost">⇩ Download output (with Period)</button><button id="btnIntermediate" class="btn ghost">⇩ Intermediate (with Period)</button><button id="btnTrace" class="btn ghost">⇩ Trace (relevant values)</button><button id="btnLogic" class="btn ghost">⇩ Full IRA logic</button><button id="btnFlow" class="btn ghost">◇ View table flow</button></div><button class="btn primary" data-go="final">Add final assessments <span>→</span></button></div>
+    </section>
+
+    <section class="page" id="page-final">
+      <div class="section-head"><div><p class="eyebrow">FINAL DECISION</p><h2>Final Inherent Credit Risk Assessment</h2><p class="muted">Complete one decision for every Product and Country combination.</p></div><span id="completionBadge" class="progress-pill">0% complete</span></div>
+      <article class="card"><div class="assessment-toolbar"><div class="filters"><select id="finalProduct" class="input"></select><select id="finalCountry" class="input"></select></div><div class="filters"><label class="btn ghost small" style="cursor:pointer">⇧ Upload overrides file<input id="overrideFile" type="file" accept=".xlsx,.xls,.csv" hidden></label><div id="scopeCounter" class="muted"></div></div></div><p class="muted" id="overrideNote" style="margin:0 0 10px">Optional: upload a file with columns Product | Country | Calculated Inherent Risk Rating | Final Inherent Credit Risk Rating | Rationale to fill decisions in bulk — or complete them one by one below.</p><div class="decision-grid"><div class="calculated-box"><small>Calculated rating</small><strong id="calculatedRating">—</strong><span id="calculatedScore">—</span></div><div class="arrow">→</div><div class="final-form"><label>Final rating<select id="finalRating" class="input"><option value="">Select rating</option><option>Very Low</option><option>Low</option><option>Medium</option><option>High</option><option>Very High</option></select></label><label>Assessment rationale<textarea id="finalComment" class="input" rows="4" placeholder="Explain the final assessment or why the calculated rating is retained."></textarea></label><button id="btnSaveDecision" class="btn primary">Save this Product and Country</button><p id="decisionSaved" class="saved-note"></p></div></div></article>
+      <article class="card"><div class="card-head"><div><h3>Completion tracker</h3><p class="muted">Saved decisions across the full assessment scope.</p></div></div><div id="decisionTracker" class="table-wrap"></div></article>
+      <div class="footer-actions"><button class="btn ghost" data-go="output">← Back to output</button><button id="btnFinalize" class="btn primary" disabled>Approve and finalize</button></div><div id="finalLog" class="log"></div>
+    </section>
+  </main>
+  <div id="toast" class="toast" hidden></div>
+</div>
